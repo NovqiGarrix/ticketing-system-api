@@ -1,0 +1,15 @@
+[package]
+name = "ticketing-system"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4.11.0"
+dotenvy = "0.15.7"
+env_logger = "0.11.8"
+envy = "0.4.2"
+log = "0.4.28"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sea-orm = { version = "2.0.0-rc", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros", "with-chrono", "with-uuid" ] }
+uuid = { version = "1.18.1", features = ["v7"] }
