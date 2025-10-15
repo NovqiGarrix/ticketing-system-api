@@ -1,12 +1,14 @@
 mod app_state;
 mod config;
+mod models;
 mod routes;
+mod services;
 
 use crate::app_state::AppState;
-use crate::config::db::get_database_connection;
 use crate::config::Config;
-use actix_web::middleware::Logger;
-use actix_web::{get, http::StatusCode, main, web, App, HttpResponse, HttpServer};
+use crate::config::db::get_database_connection;
+use actix_web::middleware::{Logger, NormalizePath};
+use actix_web::{App, HttpResponse, HttpServer, get, http::StatusCode, main, web};
 use serde_json::json;
 
 #[get("/")]
@@ -33,6 +35,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(app_state.clone())
             .wrap(Logger::default())
+            .wrap(NormalizePath::trim())
             .service(hello_world)
             .service(web::scope("/api").configure(routes::routes))
     })

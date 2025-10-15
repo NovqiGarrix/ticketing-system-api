@@ -24,12 +24,18 @@ pub enum Showtime {
     Table,
     Id,
     MovieId,
-    // TheaterId, we can add this, but since RoomId already related to the theater, we don't need this
-    RoomId,
-    Time,
-    Price,
     CreatedAt,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+pub enum ShowtimeRoom {
+    Table,
+    Id,
+    Time,
+    Price,
+    RoomId,
+    ShowtimeId,
 }
 
 #[derive(DeriveIden)]
@@ -37,5 +43,6 @@ pub enum TakenSeat {
     Table,
     Id,
     ShowtimeId,
+    ShowtimeRoomId,
     SeatIdentifier,
 }

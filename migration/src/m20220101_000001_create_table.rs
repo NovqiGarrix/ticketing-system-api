@@ -1,5 +1,5 @@
 use crate::movie::Movie;
-use crate::theater::{Room, Showtime, TakenSeat, Theater};
+use crate::theater::{Room, Showtime, ShowtimeRoom, TakenSeat, Theater};
 use sea_orm_migration::{prelude::*, schema::*};
 
 #[derive(DeriveMigrationName)]
@@ -72,9 +72,6 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_uuid(Showtime::Id).not_null())
                     .col(uuid(Showtime::MovieId).not_null())
-                    .col(uuid(Showtime::RoomId).not_null())
-                    .col(timestamp(Showtime::Time).not_null())
-                    .col(money(Showtime::Price).not_null())
                     .col(
                         date_time(Showtime::CreatedAt)
                             .not_null()
@@ -93,13 +90,38 @@ impl MigrationTrait for Migration {
                             .to_tbl(Movie::Table)
                             .to_col(Movie::Id),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        // Create showtime_rooms table
+        let _ = manager
+            .create_table(
+                Table::create()
+                    .table(ShowtimeRoom::Table)
+                    .if_not_exists()
+                    .col(pk_auto(ShowtimeRoom::Id).not_null())
+                    .col(timestamp(ShowtimeRoom::Time).not_null())
+                    .col(money(ShowtimeRoom::Price).not_null())
+                    .col(uuid(ShowtimeRoom::RoomId).not_null())
+                    .col(uuid(ShowtimeRoom::ShowtimeId).not_null())
                     .foreign_key(
                         ForeignKeyCreateStatement::new()
-                            .name("fk_showtime_room")
-                            .from_tbl(Showtime::Table)
-                            .from_col(Showtime::RoomId)
+                            .name("fk_showtime_room_room")
+                            .from_tbl(ShowtimeRoom::Table)
+                            .from_col(ShowtimeRoom::RoomId)
                             .to_tbl(Room::Table)
-                            .to_col(Room::Id),
+                            .to_col(Room::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKeyCreateStatement::new()
+                            .name("fk_showtime_room_showtime")
+                            .from_tbl(ShowtimeRoom::Table)
+                            .from_col(ShowtimeRoom::ShowtimeId)
+                            .to_tbl(Showtime::Table)
+                            .to_col(Showtime::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
@@ -112,8 +134,9 @@ impl MigrationTrait for Migration {
                     .table(TakenSeat::Table)
                     .if_not_exists()
                     .col(pk_auto(TakenSeat::Id).not_null())
-                    .col(string_len(TakenSeat::SeatIdentifier, 4).not_null())
                     .col(uuid(TakenSeat::ShowtimeId).not_null())
+                    .col(integer(TakenSeat::ShowtimeRoomId).not_null())
+                    .col(string_len(TakenSeat::SeatIdentifier, 3).not_null())
                     .foreign_key(
                         ForeignKeyCreateStatement::new()
                             .name("fs_taken_seats_showtime")
@@ -121,6 +144,15 @@ impl MigrationTrait for Migration {
                             .from_col(TakenSeat::ShowtimeId)
                             .to_tbl(Showtime::Table)
                             .to_col(Showtime::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKeyCreateStatement::new()
+                            .name("fk_taken_seats_showtime_room")
+                            .from_tbl(TakenSeat::Table)
+                            .from_col(TakenSeat::ShowtimeRoomId)
+                            .to_tbl(ShowtimeRoom::Table)
+                            .to_col(ShowtimeRoom::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
@@ -134,6 +166,7 @@ impl MigrationTrait for Migration {
                     .name("uq_taken_seat_showtime_id_seat_identifier")
                     .table(TakenSeat::Table)
                     .col(TakenSeat::ShowtimeId)
+                    .col(TakenSeat::ShowtimeRoomId)
                     .col(TakenSeat::SeatIdentifier)
                     .unique()
                     .to_owned(),
