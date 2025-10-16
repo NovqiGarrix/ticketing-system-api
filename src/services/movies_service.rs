@@ -2,8 +2,11 @@ use anyhow::anyhow;
 use entity::movie;
 use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait, QueryOrder};
 use serde::Serialize;
+use std::str::FromStr;
+use uuid::Uuid;
 
 use crate::{
+    app_error::AppError,
     app_state::Result,
     models::{movie_model::Movie, requests::get_movies_request_model::GetMoviesQueryParams},
 };
@@ -62,4 +65,25 @@ pub async fn get_movies(
             total_page: total_page - 1,
         },
     ))
+}
+
+pub async fn get_movie(db: &DatabaseConnection, movie_id: String) -> Result<Movie> {
+    let movie_id = Uuid::from_str(&movie_id)?;
+
+    let movie = movie::Entity::find_by_id(movie_id).one(db).await?;
+
+    match movie {
+        Some(movie) => Ok(Movie {
+            id: movie.id.to_string(),
+            title: movie.title,
+            overview: movie.overview,
+            rating: movie.rating,
+            genre: movie.genre,
+            poster_url: movie.poster_url,
+        }),
+        None => Err(AppError::NotFound(format!(
+            "Movie with id: {} does not exist",
+            movie_id.to_string()
+        ))),
+    }
 }

@@ -28,6 +28,9 @@ pub enum AppError {
     #[allow(dead_code)]
     BadRequest(String),
 
+    #[error("NotFound: {0}")]
+    NotFound(String),
+
     #[error("An unexpected internal error occured")]
     InternalServerError {
         #[from]
@@ -40,6 +43,13 @@ pub enum AppError {
         #[source]
         sea_orm::DbErr,
     ),
+
+    #[error("Error from UUID")]
+    Uuid(
+        #[from]
+        #[source]
+        uuid::Error,
+    ),
 }
 
 impl AppError {
@@ -49,8 +59,9 @@ impl AppError {
                 log::error!("InternalServerError: {:?}", source)
             }
             Self::Database(err) => log::error!("Database Error: {:?}", err),
+            Self::Uuid(err) => log::error!("UuidError: {:?}", err),
 
-            _ => log::info!("Clieng Error: {}", self),
+            _ => log::info!("Client Error: {}", self),
         }
     }
 
@@ -78,6 +89,7 @@ impl ResponseError for AppError {
         match *self {
             Self::Validation(_) | Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            Self::NotFound(_) => StatusCode::NOT_FOUND,
 
             // All other errors are server-side issues.
             _ => StatusCode::INTERNAL_SERVER_ERROR,
