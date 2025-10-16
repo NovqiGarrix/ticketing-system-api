@@ -1,16 +1,17 @@
-use anyhow::{Context, Ok, anyhow};
+use anyhow::{Context, anyhow};
 use chrono::NaiveDateTime;
-use entity::showtime;
-use sea_orm::{DatabaseConnection, EntityTrait, raw_sql};
+use entity::{showtime, taken_seat};
+use sea_orm::{ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter, raw_sql};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
+use uuid::Uuid;
 
 use crate::{
-    app_state::Result as R,
+    app_state::Result,
     models::showtime_model::{Movie, Showtime, ShowtimeRoom, Theater},
 };
 
-pub fn map_showtime(query_results: Vec<serde_json::Value>) -> Result<Vec<Showtime>, anyhow::Error> {
+pub fn map_showtime(query_results: Vec<serde_json::Value>) -> Result<Vec<Showtime>> {
     if query_results.is_empty() {
         return Ok(vec![]);
     }
@@ -141,7 +142,7 @@ pub fn map_showtime(query_results: Vec<serde_json::Value>) -> Result<Vec<Showtim
     Ok(results)
 }
 
-pub async fn get_showtime(db: &DatabaseConnection) -> R<Vec<Showtime>> {
+pub async fn get_showtime(db: &DatabaseConnection) -> Result<Vec<Showtime>> {
     let showtime_query_results = showtime::Entity::find()
         .from_raw_sql(raw_sql!(
             Postgres,
@@ -175,4 +176,28 @@ ORDER BY created_at DESC;
         .await?;
 
     map_showtime(showtime_query_results).map_err(|e| e.into())
+}
+
+pub async fn get_taken_seats(
+    db: &DatabaseConnection,
+    showtime_id: String,
+    showtime_room_id: i32,
+) -> Result<Vec<String>> {
+    let showtime_id = Uuid::from_str(&showtime_id)?;
+
+    let seat_taken = taken_seat::Entity::find()
+        .filter(
+            Condition::all()
+                .add(taken_seat::Column::ShowtimeId.eq(showtime_id))
+                .add(taken_seat::Column::ShowtimeRoomId.eq(showtime_room_id)),
+        )
+        .all(db)
+        .await?;
+
+    let seat_taken = seat_taken
+        .iter()
+        .map(|st| st.seat_identifier.to_owned())
+        .collect::<Vec<_>>();
+
+    Ok(seat_taken)
 }
