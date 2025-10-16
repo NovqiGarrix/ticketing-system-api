@@ -1,11 +1,15 @@
-use chrono::{NaiveDate, NaiveDateTime};
+use anyhow::anyhow;
+use chrono::NaiveDateTime;
 use entity::showtime;
 use sea_orm::{DatabaseConnection, EntityTrait, raw_sql};
-use std::{collections::HashMap, io::Error};
+use std::collections::HashMap;
 
-use crate::models::showtime_model::{Movie, Showtime, ShowtimeRoom, Theater};
+use crate::{
+    app_error::AppError,
+    models::showtime_model::{Movie, Showtime, ShowtimeRoom, Theater},
+};
 
-pub async fn get_showtime(db: &DatabaseConnection) -> Result<Vec<Showtime>, Error> {
+pub async fn get_showtime(db: &DatabaseConnection) -> Result<Vec<Showtime>, AppError> {
     let showtime_query_results = showtime::Entity::find()
         .from_raw_sql(raw_sql!(
             Postgres,
@@ -14,9 +18,8 @@ pub async fn get_showtime(db: &DatabaseConnection) -> Result<Vec<Showtime>, Erro
        created_at,
        updated_at,
        m.id           as m_id,
-       m.release_date as m_release_date,
        m.title        as m_title,
-       m.popularity   as m_popularity,
+       m.rating   as m_rating,
        m.genre        as m_genre,
        m.poster_url   as m_poster_url,
        shr.id         as shr_id,
@@ -33,8 +36,7 @@ ORDER BY created_at DESC;
         ))
         .into_json()
         .all(db)
-        .await
-        .unwrap();
+        .await?;
 
     let mut shr_hash_map: HashMap<String, Vec<ShowtimeRoom>> = HashMap::new();
     let mut theater_hash_map: HashMap<String, Vec<Theater>> = HashMap::new();
@@ -44,7 +46,10 @@ ORDER BY created_at DESC;
     for i in 0..showtime_query_results.len() {
         let showtime = &showtime_query_results[i];
 
-        let id: String = showtime["id"].as_str().unwrap().to_string();
+        let id: String = showtime["id"]
+            .as_str()
+            .ok_or_else(|| anyhow!("'id' was missing from showtime_query_results"))?
+            .to_string();
 
         let default_showtime_rooms = vec![];
         let default_theaters = vec![];
@@ -54,7 +59,10 @@ ORDER BY created_at DESC;
             .unwrap_or(&default_showtime_rooms)
             .to_vec();
         let showtime_room = ShowtimeRoom {
-            id: showtime["shr_id"].as_u64().unwrap() as u32,
+            id: showtime["shr_id"]
+                .as_u64()
+                .ok_or_else(|| anyhow!("'shr_id' was missing from showtime_query_results"))?
+                as u32,
         };
         prev_showtime_rooms.push(showtime_room);
         shr_hash_map.insert(id.to_owned(), prev_showtime_rooms.to_vec());
@@ -64,9 +72,18 @@ ORDER BY created_at DESC;
             .unwrap_or(&default_theaters)
             .to_vec();
         let theater = Theater {
-            id: showtime["t_id"].as_str().unwrap().to_string(),
-            name: showtime["t_name"].as_str().unwrap().to_string(),
-            location: showtime["t_location"].as_str().unwrap().to_string(),
+            id: showtime["t_id"]
+                .as_str()
+                .ok_or_else(|| anyhow!("'t_id' was missing from showtime_query_results"))?
+                .to_string(),
+            name: showtime["t_name"]
+                .as_str()
+                .ok_or_else(|| anyhow!("'t_name' was missing from showtime_query_results"))?
+                .to_string(),
+            location: showtime["t_location"]
+                .as_str()
+                .ok_or_else(|| anyhow!("'t_location' was missing from showtime_query_results"))?
+                .to_string(),
         };
         prev_theaters.push(theater);
         theater_hash_map.insert(id.to_owned(), prev_theaters.to_vec());
@@ -76,7 +93,7 @@ ORDER BY created_at DESC;
         } else {
             showtime_query_results[i + 1]["id"]
                 .as_str()
-                .unwrap()
+                .ok_or_else(|| anyhow!("{i} + 1 'id' was missing from showtime_query_results"))?
                 .to_owned()
         };
 
@@ -85,36 +102,63 @@ ORDER BY created_at DESC;
             // has been put into the hash maps
 
             // Collect showtime rooms
-            let shrs = shr_hash_map.get(&id).unwrap().to_vec();
+            let shrs = shr_hash_map
+                .get(&id)
+                .ok_or_else(|| anyhow!("{id} was missing from shr_hash_map"))?
+                .to_vec();
             // Collect theaters
-            let theaters = theater_hash_map.get(&id).unwrap().to_vec();
+            let theaters = theater_hash_map
+                .get(&id)
+                .ok_or_else(|| anyhow!("{id} was missing from theater_has_map"))?
+                .to_vec();
+
+            let created_at = showtime["created_at"]
+                .as_str()
+                .ok_or_else(|| anyhow!("'created_at' was missing from showtime_query_results"))?;
+
+            let updated_at = showtime["updated_at"]
+                .as_str()
+                .ok_or_else(|| anyhow!("'updated_at' was missing from showtime_query_results"))?;
 
             let sh = Showtime {
                 id: id.to_owned(),
-                created_at: NaiveDateTime::parse_from_str(
-                    &showtime["created_at"].as_str().unwrap(),
-                    "%Y-%m-%dT%H:%M:%S.%f",
-                )
-                .unwrap(),
-                updated_at: NaiveDateTime::parse_from_str(
-                    &showtime["updated_at"].as_str().unwrap(),
-                    "%Y-%m-%dT%H:%M:%S.%f",
-                )
-                .unwrap(),
+                created_at: NaiveDateTime::parse_from_str(created_at, "%Y-%m-%dT%H:%M:%S.%f")
+                    .map_err(|e| {
+                        anyhow!("Failed to parse {created_at} to NaiveDateTime - Err: {e:?}")
+                    })?,
+                updated_at: NaiveDateTime::parse_from_str(updated_at, "%Y-%m-%dT%H:%M:%S.%f")
+                    .map_err(|e| {
+                        anyhow!("Failed to parse {updated_at} to NaiveDateTime - Err: {e:?}")
+                    })?,
                 movie: Movie {
-                    id: showtime["m_id"].as_str().unwrap().to_string(),
-                    title: showtime["m_title"].as_str().unwrap().to_string(),
-                    genre: showtime["m_genre"].as_str().unwrap().to_string(),
-                    popularity: showtime["m_popularity"].as_f64().unwrap(),
-                    poster_url: showtime["m_poster_url"].as_str().unwrap().to_string(),
-                    release_date: NaiveDate::parse_from_str(
-                        showtime["m_release_date"].as_str().unwrap(),
-                        "%Y-%m-%d",
-                    )
-                    .unwrap(),
+                    id: showtime["m_id"]
+                        .as_str()
+                        .ok_or_else(|| anyhow!("'m_id' was missing from showtime_query_results"))?
+                        .to_string(),
+                    title: showtime["m_title"]
+                        .as_str()
+                        .ok_or_else(|| {
+                            anyhow!("'m_title' was missing from showtime_query_results")
+                        })?
+                        .to_string(),
+                    genre: showtime["m_genre"]
+                        .as_str()
+                        .ok_or_else(|| {
+                            anyhow!("'m_genre' was missing from showtime_query_results")
+                        })?
+                        .to_string(),
+                    rating: showtime["m_rating"].as_f64().ok_or_else(|| {
+                        anyhow!("'m_rating' was missing from showtime_query_results")
+                    })?,
+                    poster_url: showtime["m_poster_url"]
+                        .as_str()
+                        .ok_or_else(|| {
+                            anyhow!("'m_poster_url' was missing from showtime_query_results")
+                        })?
+                        .to_string(),
                 },
+                theaters,
                 showtime_rooms: shrs,
-                theaters: theaters,
             };
 
             results.push(sh);

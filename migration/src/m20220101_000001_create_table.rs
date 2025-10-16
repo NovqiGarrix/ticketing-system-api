@@ -15,10 +15,9 @@ impl MigrationTrait for Migration {
                     .table(Movie::Table)
                     .if_not_exists()
                     .col(pk_uuid(Movie::Id).not_null())
-                    .col(date(Movie::ReleaseDate).not_null())
                     .col(string(Movie::Title).not_null())
                     .col(string(Movie::Overview).not_null())
-                    .col(float(Movie::Popularity).not_null())
+                    .col(float(Movie::Rating).not_null())
                     .col(string(Movie::Genre).not_null())
                     .col(text(Movie::PosterUrl).not_null())
                     .to_owned(),

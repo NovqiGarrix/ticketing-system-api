@@ -1,3 +1,4 @@
+mod app_error;
 mod app_state;
 mod config;
 mod models;
@@ -27,7 +28,6 @@ async fn main() -> std::io::Result<()> {
     let database_connection = get_database_connection(&config).await;
 
     let app_state = web::Data::new(AppState {
-        config: config.clone(),
         database_connection,
     });
 

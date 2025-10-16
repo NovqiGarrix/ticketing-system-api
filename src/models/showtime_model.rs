@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDateTime;
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Clone)]
@@ -10,9 +10,8 @@ pub struct ShowtimeRoom {
 #[serde(rename_all = "camelCase")]
 pub struct Movie {
     pub id: String,
-    pub release_date: NaiveDate,
     pub title: String,
-    pub popularity: f64,
+    pub rating: f64,
     pub genre: String,
     pub poster_url: String,
 }

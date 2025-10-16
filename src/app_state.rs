@@ -1,7 +1,8 @@
-use crate::config::Config;
+use crate::app_error::AppError;
 use sea_orm::DatabaseConnection;
 
 pub struct AppState {
-    pub config: Config,
     pub database_connection: DatabaseConnection,
 }
+
+pub type Result<T> = core::result::Result<T, AppError>;

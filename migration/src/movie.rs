@@ -4,10 +4,9 @@ use sea_orm_migration::prelude::*;
 pub enum Movie {
     Table,
     Id,
-    ReleaseDate,
     Title,
     Overview,
-    Popularity,
+    Rating,
     Genre,
     PosterUrl,
 }
