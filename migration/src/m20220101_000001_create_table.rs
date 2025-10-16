@@ -101,7 +101,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(ShowtimeRoom::Id).not_null())
                     .col(timestamp(ShowtimeRoom::Time).not_null())
-                    .col(money(ShowtimeRoom::Price).not_null())
+                    .col(integer(ShowtimeRoom::Price).not_null())
                     .col(uuid(ShowtimeRoom::RoomId).not_null())
                     .col(uuid(ShowtimeRoom::ShowtimeId).not_null())
                     .foreign_key(

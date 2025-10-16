@@ -1,15 +1,147 @@
-use anyhow::anyhow;
+use anyhow::{Context, Ok, anyhow};
 use chrono::NaiveDateTime;
 use entity::showtime;
 use sea_orm::{DatabaseConnection, EntityTrait, raw_sql};
+use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::{
-    app_error::AppError,
+    app_state::Result as R,
     models::showtime_model::{Movie, Showtime, ShowtimeRoom, Theater},
 };
 
-pub async fn get_showtime(db: &DatabaseConnection) -> Result<Vec<Showtime>, AppError> {
+pub fn map_showtime(query_results: Vec<serde_json::Value>) -> Result<Vec<Showtime>, anyhow::Error> {
+    if query_results.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut results: Vec<Showtime> = vec![];
+    let mut grouped_results: HashMap<String, Vec<Value>> = HashMap::new();
+
+    // Group all rows by the showtime ID first. This is simpler than comparing with the next item.
+    for row in query_results {
+        let id = row
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("'id' field is missing or not a string in query result"))?
+            .to_string();
+        grouped_results.entry(id).or_default().push(row);
+    }
+
+    for (id, rows) in grouped_results {
+        let first_row = &rows[0]; // All rows in this group share the main showtime info.
+
+        let mut theaters = HashMap::new();
+        let mut showtime_rooms = HashMap::new();
+
+        for row in &rows {
+            // Use and_then to safely chain operations that return Option.
+            let t_id = row.get("t_id").and_then(Value::as_str).unwrap_or_default();
+            if !theaters.contains_key(t_id) {
+                theaters.insert(
+                    t_id.to_string(),
+                    Theater {
+                        id: t_id.to_string(),
+                        name: row
+                            .get("t_name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        location: row
+                            .get("t_location")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    },
+                );
+            }
+
+            if let Some(shr_id) = row.get("shr_id").and_then(Value::as_u64) {
+                if !showtime_rooms.contains_key(&shr_id) {
+                    let shr_time_str = row
+                        .get("shr_time")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| anyhow!("'shr_time' is missing or is not parseable"))?;
+
+                    let shr = ShowtimeRoom {
+                        id: shr_id,
+                        price: row
+                            .get("shr_price")
+                            .and_then(Value::as_i64)
+                            .ok_or_else(|| anyhow!("'shr_price' is missing or is not parseable"))?
+                            as u32,
+                        time: NaiveDateTime::parse_from_str(shr_time_str, "%Y-%m-%dT%H:%M:%S")
+                            .context(format!("Failed to parse shr_time: {}", shr_time_str))?,
+                        room_id: row
+                            .get("shr_room_id")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| anyhow!("'shr_room_id' is missing or is not parseable"))?
+                            .to_string(),
+                        room_name: row
+                            .get("shr_room_name")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| {
+                                anyhow!("'shr_room_name' is missing or is not parseable")
+                            })?
+                            .to_string(),
+                    };
+                    showtime_rooms.insert(shr_id, shr);
+                }
+            }
+        }
+
+        let created_at_str = first_row
+            .get("created_at")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("'created_at' is missing"))?;
+        let updated_at_str = first_row
+            .get("updated_at")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("'updated_at' is missing"))?;
+
+        let sh = Showtime {
+            id,
+            created_at: NaiveDateTime::parse_from_str(created_at_str, "%Y-%m-%dT%H:%M:%S.%f")
+                .context(format!("Failed to parse created_at: {}", created_at_str))?,
+            updated_at: NaiveDateTime::parse_from_str(updated_at_str, "%Y-%m-%dT%H:%M:%S.%f")
+                .context(format!("Failed to parse updated_at: {}", updated_at_str))?,
+            movie: Movie {
+                id: first_row
+                    .get("m_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                title: first_row
+                    .get("m_title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                genre: first_row
+                    .get("m_genre")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                rating: first_row
+                    .get("m_rating")
+                    .and_then(Value::as_f64)
+                    .unwrap_or_default(),
+                poster_url: first_row
+                    .get("m_poster_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            },
+            theaters: theaters.into_values().collect(),
+            showtime_rooms: showtime_rooms.into_values().collect(),
+        };
+
+        results.push(sh);
+    }
+
+    Ok(results)
+}
+
+pub async fn get_showtime(db: &DatabaseConnection) -> R<Vec<Showtime>> {
     let showtime_query_results = showtime::Entity::find()
         .from_raw_sql(raw_sql!(
             Postgres,
@@ -19,10 +151,14 @@ pub async fn get_showtime(db: &DatabaseConnection) -> Result<Vec<Showtime>, AppE
        updated_at,
        m.id           as m_id,
        m.title        as m_title,
-       m.rating   as m_rating,
+       m.rating       as m_rating,
        m.genre        as m_genre,
        m.poster_url   as m_poster_url,
        shr.id         as shr_id,
+       shr.time       as shr_time,
+       shr.price      as shr_price,
+       r.id           as shr_room_id,
+       r.name         as shr_room_name,
        t.id           as t_id,
        t.name         as t_name,
        t.location     as t_location
@@ -38,132 +174,5 @@ ORDER BY created_at DESC;
         .all(db)
         .await?;
 
-    let mut shr_hash_map: HashMap<String, Vec<ShowtimeRoom>> = HashMap::new();
-    let mut theater_hash_map: HashMap<String, Vec<Theater>> = HashMap::new();
-
-    let mut results: Vec<Showtime> = vec![];
-
-    for i in 0..showtime_query_results.len() {
-        let showtime = &showtime_query_results[i];
-
-        let id: String = showtime["id"]
-            .as_str()
-            .ok_or_else(|| anyhow!("'id' was missing from showtime_query_results"))?
-            .to_string();
-
-        let default_showtime_rooms = vec![];
-        let default_theaters = vec![];
-
-        let mut prev_showtime_rooms = shr_hash_map
-            .get(id.as_str())
-            .unwrap_or(&default_showtime_rooms)
-            .to_vec();
-        let showtime_room = ShowtimeRoom {
-            id: showtime["shr_id"]
-                .as_u64()
-                .ok_or_else(|| anyhow!("'shr_id' was missing from showtime_query_results"))?
-                as u32,
-        };
-        prev_showtime_rooms.push(showtime_room);
-        shr_hash_map.insert(id.to_owned(), prev_showtime_rooms.to_vec());
-
-        let mut prev_theaters = theater_hash_map
-            .get(id.as_str())
-            .unwrap_or(&default_theaters)
-            .to_vec();
-        let theater = Theater {
-            id: showtime["t_id"]
-                .as_str()
-                .ok_or_else(|| anyhow!("'t_id' was missing from showtime_query_results"))?
-                .to_string(),
-            name: showtime["t_name"]
-                .as_str()
-                .ok_or_else(|| anyhow!("'t_name' was missing from showtime_query_results"))?
-                .to_string(),
-            location: showtime["t_location"]
-                .as_str()
-                .ok_or_else(|| anyhow!("'t_location' was missing from showtime_query_results"))?
-                .to_string(),
-        };
-        prev_theaters.push(theater);
-        theater_hash_map.insert(id.to_owned(), prev_theaters.to_vec());
-
-        let next_id = if i + 1 >= showtime_query_results.len() {
-            "".to_owned()
-        } else {
-            showtime_query_results[i + 1]["id"]
-                .as_str()
-                .ok_or_else(|| anyhow!("{i} + 1 'id' was missing from showtime_query_results"))?
-                .to_owned()
-        };
-
-        if id != next_id {
-            // All showrooms and theaters
-            // has been put into the hash maps
-
-            // Collect showtime rooms
-            let shrs = shr_hash_map
-                .get(&id)
-                .ok_or_else(|| anyhow!("{id} was missing from shr_hash_map"))?
-                .to_vec();
-            // Collect theaters
-            let theaters = theater_hash_map
-                .get(&id)
-                .ok_or_else(|| anyhow!("{id} was missing from theater_has_map"))?
-                .to_vec();
-
-            let created_at = showtime["created_at"]
-                .as_str()
-                .ok_or_else(|| anyhow!("'created_at' was missing from showtime_query_results"))?;
-
-            let updated_at = showtime["updated_at"]
-                .as_str()
-                .ok_or_else(|| anyhow!("'updated_at' was missing from showtime_query_results"))?;
-
-            let sh = Showtime {
-                id: id.to_owned(),
-                created_at: NaiveDateTime::parse_from_str(created_at, "%Y-%m-%dT%H:%M:%S.%f")
-                    .map_err(|e| {
-                        anyhow!("Failed to parse {created_at} to NaiveDateTime - Err: {e:?}")
-                    })?,
-                updated_at: NaiveDateTime::parse_from_str(updated_at, "%Y-%m-%dT%H:%M:%S.%f")
-                    .map_err(|e| {
-                        anyhow!("Failed to parse {updated_at} to NaiveDateTime - Err: {e:?}")
-                    })?,
-                movie: Movie {
-                    id: showtime["m_id"]
-                        .as_str()
-                        .ok_or_else(|| anyhow!("'m_id' was missing from showtime_query_results"))?
-                        .to_string(),
-                    title: showtime["m_title"]
-                        .as_str()
-                        .ok_or_else(|| {
-                            anyhow!("'m_title' was missing from showtime_query_results")
-                        })?
-                        .to_string(),
-                    genre: showtime["m_genre"]
-                        .as_str()
-                        .ok_or_else(|| {
-                            anyhow!("'m_genre' was missing from showtime_query_results")
-                        })?
-                        .to_string(),
-                    rating: showtime["m_rating"].as_f64().ok_or_else(|| {
-                        anyhow!("'m_rating' was missing from showtime_query_results")
-                    })?,
-                    poster_url: showtime["m_poster_url"]
-                        .as_str()
-                        .ok_or_else(|| {
-                            anyhow!("'m_poster_url' was missing from showtime_query_results")
-                        })?
-                        .to_string(),
-                },
-                theaters,
-                showtime_rooms: shrs,
-            };
-
-            results.push(sh);
-        }
-    }
-
-    Ok(results)
+    map_showtime(showtime_query_results).map_err(|e| e.into())
 }

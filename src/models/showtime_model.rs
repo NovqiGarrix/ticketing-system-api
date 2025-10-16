@@ -3,7 +3,11 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ShowtimeRoom {
-    pub id: u32,
+    pub id: u64,
+    pub time: NaiveDateTime,
+    pub price: u32,
+    pub room_id: String,
+    pub room_name: String,
 }
 
 #[derive(Debug, Serialize)]
