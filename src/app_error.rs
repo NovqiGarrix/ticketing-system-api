@@ -17,12 +17,15 @@ pub struct FieldError {
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("Validation")]
+    #[allow(dead_code)]
     Validation(Vec<FieldError>),
 
     #[error("Unauthorized: {0}")]
+    #[allow(dead_code)]
     Unauthorized(String),
 
     #[error("BadRequest: {0}")]
+    #[allow(dead_code)]
     BadRequest(String),
 
     #[error("An unexpected internal error occured")]
