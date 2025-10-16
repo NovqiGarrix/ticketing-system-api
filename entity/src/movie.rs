@@ -7,11 +7,10 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
-    pub release_date: Date,
     pub title: String,
     pub overview: String,
     #[sea_orm(column_type = "Float")]
-    pub popularity: f32,
+    pub rating: f32,
     pub genre: String,
     #[sea_orm(column_type = "Text")]
     pub poster_url: String,
